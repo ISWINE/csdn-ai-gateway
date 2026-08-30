@@ -229,7 +229,22 @@ object Registry {
         val cfg = cfg(); cfg.put("webSearch", JSONObject().put("web", web).put("api", api))
         Store.writeText("config.json", cfg.toString(2))
     }
-    fun uid(): String = cfg().optString("uid", "")
+    fun uid(): String {
+        val fromCfg = cfg().optString("uid", "")
+        if (fromCfg.isNotEmpty()) return fromCfg
+        // 登录 cookie 里就有用户名（UserName/UN），自动读取零配置
+        return try {
+            val jar = CookieJar.load()
+            var found = ""
+            for (i in 0 until jar.length()) {
+                val c = jar.optJSONObject(i) ?: continue
+                val n = c.optString("name")
+                val v = c.optString("value")
+                if (v.isNotEmpty() && (n == "UserName" || n == "UN")) found = v
+            }
+            found
+        } catch (e: Exception) { "" }
+    }
     fun setUid(v: String) {
         val cfg = cfg(); cfg.put("uid", v)
         Store.writeText("config.json", cfg.toString(2))
