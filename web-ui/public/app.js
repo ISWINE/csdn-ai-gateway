@@ -577,22 +577,6 @@ function copyText(text, msg) {
     document.execCommand('copy'); document.body.removeChild(ta); toast(msg + '（兜底模式）');
   });
 }
-let qrPoll = null;
-async function startQrLogin() {
-  try {
-    await fetch("/api/auth/qr-login", { method: "POST" });
-    document.getElementById("qrLog").style.display = "block";
-    toast("已拉起扫码窗口，请在弹出的浏览器里扫码");
-    clearInterval(qrPoll);
-    qrPoll = setInterval(async () => {
-      const s = await refreshCookieStatus();
-      if (s && !s.qrRunning) {
-        clearInterval(qrPoll); qrPoll = null;
-        toast(s.qrSuccess ? "✓ 扫码登录成功，cookie 已生效" : "扫码流程结束（未完成登录）");
-      }
-    }, 2000);
-  } catch (e) { toast("启动失败：" + e.message); }
-}
 async function doImport() {
   const text = document.getElementById("importText").value.trim();
   if (!text) return toast("先粘贴 cookie 内容");
@@ -1122,7 +1106,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#copyMcpBtn").onclick = copyMcpConfig;
   $("#apiDocsBtn").onclick = openApiDocs;
   $("#docsCloseBtn").onclick = closeApiDocs;
-  $("#qrLoginBtn").onclick = startQrLogin;
   $("#qr2Btn").onclick = () => {
     if (window.AndroidBridge && window.AndroidBridge.openLogin) window.AndroidBridge.openLogin();
     else startQr2();

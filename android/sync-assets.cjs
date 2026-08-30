@@ -14,7 +14,6 @@ function copy(dir, rel) {
 copy(SRC, "");
 let html = fs.readFileSync(path.join(DST, "index.html"), "utf8");
 // 安卓端：本机弹窗扫码隐藏（无此功能）；网页扫码按钮改为原生网页登录入口（AndroidBridge.openLogin）
-html = html.replace('<button id="qrLoginBtn">', '<button id="qrLoginBtn" style="display:none">');
 html = html.replace('<button class="primary" id="qr2Btn">📱 网页扫码登录（微信）</button>', '<button class="primary" id="qr2Btn">📱 网页登录（扫码/微信/手机号）</button>');
 // 4) 注入安卓标记
 html = html.replace('<script src="app.js"></script>', '<script>window.IS_ANDROID = true</script>\n<script src="app.js"></script>');
