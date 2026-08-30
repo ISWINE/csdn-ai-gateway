@@ -20,3 +20,20 @@ uid.txt
 web-ui/data/
 /Screenshot_2026_0823_070806.jpg
 /login_page_probe.png
+
+# PC 端（仅本机保留运行，不入公开仓库）
+web-ui/
+csdn-ai-server.js
+csdn_ai_direct.js
+phoenix_agent.js
+login.js
+make_cookies.js
+tests/
+TEST_PROMPTS.md
+REPORT.md
+run_stage.sh
+start-agent.cmd
+archive/
+package.json
+package-lock.json
+AGENTS.md
