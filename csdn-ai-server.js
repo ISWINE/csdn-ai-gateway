@@ -182,31 +182,40 @@ function messagesToPrompt(messages, hasTools = false) {
   }
   // 续跑指令只注入一次（在最后一条工具结果之后），避免历史里多份重复提示诱发复读
   if ((messages || []).some(m => m.role === "tool")) {
-    parts.push("<continue_instruction>以上工具均已执行完毕。若用户任务还有未完成的步骤，立即按前述格式发起下一个工具调用；全部完成则直接给出最终总结。</continue_instruction>");
+    parts.push("<continue_instruction>以上工具均已执行完毕。若工具结果已能满足用户请求，直接输出最终总结回答用户（不要再调用工具）；确实还有未完成的步骤时，才按前述格式发起下一个工具调用。</continue_instruction>");
   }
   return parts.join("\n") + "\n助手:";
 }
 
 /** 构造工具调用协议的系统提示 */
 function toolsSystemPrompt(tools) {
-  const lines = (tools || []).map(t => {
+  // Hermes 标准模板（vLLM 同款）：工具 schema 以 JSON 数组注入，模型用 <tool_call> 回应
+  const list = (tools || []).map((t) => {
     const f = t.function || t;
-    return `- ${f.name}: ${f.description || ""}\n  参数(JSON Schema): ${typeof f.parameters === "string" ? f.parameters : JSON.stringify(f.parameters || {})}`;
-  }).join("\n");
-  return [
-    "【可用工具】",
-    lines,
-    "",
-    "【调用格式】需要调用工具时仅输出（不要编造执行结果）：",
-    '<tool_call>{"name":"工具名","arguments":{参数}}</tool_call>',
-    "工具名与参数名严格取自上方列表。可以连续输出多个调用来并行执行多个工具。收到 <action_result> 后基于真实结果继续回答。",
-  ].join("\n");
+    return { type: "function", function: { name: f.name, description: f.description || "", parameters: (typeof f.parameters === "string" ? JSON.parse(f.parameters || "{}") : (f.parameters || { type: "object", properties: {} })) } };
+  });
+  const DQ = String.fromCharCode(34);
+  const L = [];
+  L.push("You are a function calling AI agent with access to the tools below. 工具执行结果会以 <action_result> 标签回传给你，基于真实结果继续工作，严禁编造执行结果。");
+  L.push("");
+  L.push("<tools>");
+  L.push(JSON.stringify(list));
+  L.push("</tools>");
+  L.push("");
+  L.push("需要调用工具时，仅输出一行（不要代码块、不要解释、不要编造结果）：");
+  L.push("<tool_call>{" + DQ + "name" + DQ + ": " + DQ + "工具名" + DQ + ", " + DQ + "arguments" + DQ + ": {参数}}</tool_call>");
+  L.push("工具名与参数名严格取自 <tools>。可连续输出多个 <tool_call> 并行调用。收到 <action_result> 后，若结果已能满足用户请求，立即输出最终中文回答（不要再调用工具）。不要使用 DSML 或其他标记格式。");
+  return L.join("\n");
 }
 
 /** 从输出中解析 <tool_call> 块（容忍 JSON 损伤：尾逗号/提取 arguments 对象/回退 cmd 字段） */
 function extractToolCalls(text) {
   const calls = [];
   const re = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+  // 流末未闭合容错：截取最后一个 <tool_call> 到文末
+  if (text.includes("<tool_call>") && !/<\/tool_call>\s*$/.test(text)) {
+    text = text + "</tool_call>";
+  }
   let m;
   while ((m = re.exec(text))) {
     const inner = m[1].trim();
@@ -621,7 +630,7 @@ async function handleChat(req, res, body) {
   const phoenixModel = (attPhoenix || hasFileMarker || !hasTools) ? PHOENIX_MODELS[model] : null;
   if (phoenixModel) return handlePhoenixChat(req, res, body, model, phoenixModel, stream);
   // ai-middle 通道永远走思考模式（think:false 通道常年限流）
-  let prompt = messagesToPrompt(body.messages, hasTools);
+  let prompt = messagesToPrompt(body.messages, false); // 工具约定由 toolsSystemPrompt(Hermes) 全权负责，避免双规则打架
   if (hasTools) {
     prompt = toolsSystemPrompt(body.tools) + "\n\n" + prompt;
   }
