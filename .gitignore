@@ -1,0 +1,22 @@
+# 敏感信息（绝不入库）
+csdn-cookies.json
+csdn-cookies.json.bak
+.bridge-token.txt
+**/dump_Claude*.txt
+archive/user_data/
+login_profile/
+
+# 依赖与运行时
+node_modules/
+*.log
+web-ui/data/
+
+# 测试工作目录
+cc-test/
+.zcode/
+login_profile_web/
+uid.txt
+uid.txt
+web-ui/data/
+/Screenshot_2026_0823_070806.jpg
+/login_page_probe.png
