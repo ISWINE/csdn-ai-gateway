@@ -146,6 +146,17 @@ async function agentStream({ messages, model, fileUrl }, onEvent, signal) {
   }
 }
 
+/** Dify 快模型纯文本补全（工具模式后端）：非流式聚合，空回复+错误才抛 */
+async function fastChat({ query, modelId = "3", webSearch = "0" }, signal) {
+  let answer = "", errored = null;
+  await searchStream({ query, docIds: "", webSearch, modelId, pure: false, sid: "" }, (ev) => {
+    if (ev.t === "answer") answer += ev.text || "";
+    else if (ev.t === "error") errored = ev.msg;
+  }, signal);
+  if (!answer && errored) throw new Error("上游错误: " + errored);
+  return answer.trim();
+}
+
 /** 站内搜索 references 的提取：优先"搜索结果解析"节点，兜底扫描带 url 的结果数组 */
 function extractRefs(nodeOutputs) {
   const out = [];
@@ -282,4 +293,4 @@ async function listModels() {
   return out;
 }
 
-module.exports = { chatStream, agentStream, searchStream, listModels, buildContent, uploadSearchDoc };
+module.exports = { chatStream, agentStream, searchStream, listModels, buildContent, uploadSearchDoc, fastChat };

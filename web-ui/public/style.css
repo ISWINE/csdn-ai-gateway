@@ -246,3 +246,7 @@ body.ed-open #edPanel { display: flex; }
 [data-theme="dark"] .tpl-slot { background: rgba(59,130,246,.22); color: #93c5fd; }
 [data-theme="dark"] .tpl-slot::placeholder { color: rgba(147,197,253,.5); }
 .tpl-x { padding: 3px 9px; font-size: 12px; border: none; background: transparent; color: var(--sub); }
+
+/* 工具模式步骤 */
+.tool-step { font-size: 12px; color: var(--sub); padding: 2px 0; border-bottom: 1px dashed var(--line); }
+#toolModeWrap { display: none; align-items: center; gap: 6px; margin-right: 10px; color: var(--sub); font-size: 12px; }

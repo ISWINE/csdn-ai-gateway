@@ -209,6 +209,19 @@ class WebServer(ctx: Context, private val port: Int) {
                 } catch (e: Exception) { err(500, (e.message ?: "上传失败").slice(0 until minOf(200, (e.message ?: "上传失败").length))) }
             }
 
+            /* --- 工具模式后端：内部转调 /v1（deepseek-chat 自带空回复重试） --- */
+            if (p == "/api/fast" && method == "POST") {
+                val body = req.bodyJson()
+                val gwBody = JSONObject().put("model", "deepseek-chat")
+                    .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", body.optString("query"))))
+                    .toString().toByteArray()
+                val gwReq = HttpReq("POST", "/v1/chat/completions", emptyMap(), mapOf("content-length" to gwBody.size.toString()), gwBody)
+                val gwResp = route(gwReq)
+                val out = try { JSONObject(String(gwResp.body ?: ByteArray(0), Charsets.UTF_8)) } catch (e: Exception) { JSONObject() }
+                val text = out.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content") ?: ""
+                return json(JSONObject().put("text", text.trim()))
+            }
+
             /* --- 三通道 SSE --- */
             if (p == "/api/chat" || p == "/api/agent" || p == "/api/search") {
                 val body = req.bodyJson()

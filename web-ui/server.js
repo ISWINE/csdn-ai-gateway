@@ -388,6 +388,21 @@ const handler = async (req, res) => {
       }
     }
 
+    /* --- 工具模式后端：转发本机网关 /v1（deepseek-chat 带防故障重试） --- */
+    if (p === "/api/fast" && req.method === "POST") {
+      const body = JSON.parse((await readBody(req)).toString("utf8") || "{}");
+      const gwBody = JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: String(body.query || "") }] });
+      let up;
+      try {
+        up = await fetch("http://127.0.0.1:3000/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json" }, body: gwBody, signal: AbortSignal.timeout(300000) });
+      } catch (e) {
+        return sendJSON(res, 200, { text: "", error: "PC 网关未运行（node csdn-ai-server.js 3000）：" + String(e.message || e).slice(0, 80) });
+      }
+      if (!up.ok) return sendJSON(res, 200, { text: "", error: "网关 HTTP " + up.status });
+      const j = await up.json();
+      return sendJSON(res, 200, { text: (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "" });
+    }
+
     /* --- 三通道流式 --- */
     if (p === "/api/chat" || p === "/api/agent" || p === "/api/search") {
       const body = JSON.parse((await readBody(req)).toString("utf8") || "{}");

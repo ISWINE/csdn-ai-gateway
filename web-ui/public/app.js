@@ -251,6 +251,17 @@ async function send(text) {
   };
 
   try {
+    if (state.mode === "agent" && document.getElementById("toolMode").checked) {
+      const res = await toolAgentRun(text, (tool, result) => {
+        const chip = document.createElement("div");
+        chip.className = "tool-step";
+        chip.textContent = "🔧 " + tool + " · " + result;
+        shell.mdEl.appendChild(chip);
+        scrollBottom();
+      });
+      shell.answerText = res.text;
+      if (shell.connEl) shell.connEl.textContent = "🛠 工具模式 · " + (res.toolLog.length ? res.toolLog.join(" → ") : "直答");
+    } else {
     let path, body;
     if (state.mode === "chat") {
       path = "/api/chat";
@@ -280,6 +291,7 @@ async function send(text) {
         }
       }
     }
+    }
   } catch (e) {
     if (e.name !== "AbortError") { hadError = String(e.message || e); toast("请求失败：" + hadError); }
     else toast("已停止生成");
@@ -298,7 +310,7 @@ async function send(text) {
     const syncText = (shell.edArtifact && shell.edArtifact.length >= 50) ? shell.edArtifact : (shell.edFinal || shell.answerText);
     const bub = shell.mdEl.closest(".bubble") || shell.mdEl.parentElement;
     if (bub) addEdChips(bub, syncText);
-    if (state.mode === "agent" && !hadError && syncText.length >= 200) {
+    if (state.mode === "agent" && !(document.getElementById("toolMode") && document.getElementById("toolMode").checked) && !hadError && syncText.length >= 200) {
       edApply("append", syncText);
       edOpen(true);
       toast("✓ 智能体内容已同步到左侧编辑器（追加）");
@@ -398,6 +410,47 @@ function tplCompose() {
   if (!tpl) return null;
   for (const seg of tpl.segs) if (seg.t === "slot" && !seg.s.trim()) return { err: "还有未填写的占位：" + seg.ph };
   return tpl.segs.map((sg) => sg.s).join("");
+}
+
+/* ---------- 工具模式智能体（DeepSeek-V4-Flash + 自定义工具协议，不走 phoenix 通道） ---------- */
+const TOOL_MODEL_ID = "3"; // DeepSeek-V4-Flash（Dify）
+const TOOL_SPEC = [
+  "你是接入用户 Markdown 编辑器的编辑智能体，可以调用工具操作编辑器。",
+  "每次回复只能二选一：",
+  "A) 输出一行工具调用 JSON（无代码块无解释），每次仅一个：",
+  '{"tool":"read_editor"} —— 读取编辑器当前全文',
+  '{"tool":"write_editor","content":"<替换编辑器的完整新文章>"} —— 整篇替换',
+  '{"tool":"append_editor","content":"<追加内容>"} —— 追加到文末',
+  "B) 任务已完成时：直接输出最终答复正文（Markdown），不再调用工具。",
+].join("\n");
+function parseToolCall(text) {
+  const t = (text || "").trim();
+  if (!t.startsWith("{")) return null;
+  try { const j = JSON.parse(t); if (j && j.tool) return j; } catch (e) {}
+  return null;
+}
+async function fastCall(query) {
+  const r = await (await fetch("/api/fast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, modelId: TOOL_MODEL_ID }) })).json();
+  if (r.error) throw new Error(r.error);
+  return r.text || "";
+}
+async function toolAgentRun(instruction, onStep) {
+  const article = edTextEl().value.trim();
+  let query = [TOOL_SPEC, "", "【编辑器当前全文】", article || "（空）", "【结束】", "", "用户指令：" + instruction].join("\n");
+  const toolLog = [];
+  for (let step = 1; step <= 5; step++) {
+    const out = await fastCall(query);
+    const call = parseToolCall(out);
+    if (!call) return { text: out, toolLog };
+    let result = "未知工具";
+    if (call.tool === "write_editor") { const c = String(call.content || ""); edApply("replace", c); result = "已替换编辑器全文（" + c.length + " 字）"; }
+    else if (call.tool === "append_editor") { const c = String(call.content || ""); edApply("append", c); result = "已追加（" + c.length + " 字）"; }
+    else if (call.tool === "read_editor") result = edTextEl().value || "（空）";
+    toolLog.push(call.tool);
+    onStep(call.tool, result);
+    query = out + "\n[TOOL_RESULT] " + result.slice(0, 500) + "\n继续。若用户任务已完成，输出最终答复正文。";
+  }
+  return { text: "（达到工具调用轮次上限，请拆分任务）", toolLog };
 }
 
 /* ---------- 划选菜单（官方划选六件套） ---------- */
@@ -1061,6 +1114,8 @@ function switchMode(mode) {
   document.getElementById("sidebar").classList.remove("open");
   const m = document.getElementById("sbMask"); if (m) m.style.display = "none";
   syncTabs();
+  const tmw = document.getElementById("toolModeWrap");
+  if (tmw) tmw.style.display = (mode === "agent") ? "inline-flex" : "none";
   if (state.session && state.session.mode !== mode) state.session = null;
   renderStream();
 }
