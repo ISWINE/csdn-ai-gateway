@@ -72,13 +72,14 @@ object AndroidQrLogin {
             val passport = cm.getCookie("https://passport.csdn.net/") ?: ""
             if (www.contains("UserToken=") || www.contains("UserInfo=")) {
                 val arr = JSONArray()
+                val seen = HashSet<String>()
                 fun collect(raw: String, domain: String) {
                     for (pair in raw.split("; ")) {
                         val i = pair.indexOf("=")
                         if (i <= 0) continue
                         val name = pair.slice(0 until i).trim()
                         val v = pair.slice(i + 1 until pair.length).trim()
-                        if (name.isEmpty() || v.isEmpty()) continue
+                        if (name.isEmpty() || v.isEmpty() || !seen.add(name)) continue
                         arr.put(JSONObject().put("name", name).put("value", v).put("domain", domain).put("path", "/"))
                     }
                 }

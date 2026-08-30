@@ -76,6 +76,9 @@ class MainActivity : Activity() {
         val cm = CookieManager.getInstance()
         cm.setAcceptCookie(true)
         cm.setAcceptThirdPartyCookies(loginWeb, true)
+        // 清掉登录页历史 cookie（跟踪器/旧会话），采集数量与 PC 端对齐；App 会话在 jar 文件里不受影响
+        cm.removeAllCookies(null)
+        cm.flush()
         loginWeb.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean {
                 val url = request.url.toString()
@@ -122,13 +125,14 @@ class MainActivity : Activity() {
                 val passport = cm.getCookie("https://passport.csdn.net/") ?: ""
                 if (www.contains("UserToken=") || www.contains("UserInfo=")) {
                     val arr = org.json.JSONArray()
+                    val seen = HashSet<String>()
                     fun collect(raw: String, domain: String) {
                         for (pair in raw.split("; ")) {
                             val i = pair.indexOf("=")
                             if (i <= 0) continue
                             val name = pair.slice(0 until i).trim()
                             val v = pair.slice(i + 1 until pair.length).trim()
-                            if (name.isEmpty() || v.isEmpty()) continue
+                            if (name.isEmpty() || v.isEmpty() || !seen.add(name)) continue  // 同名去重（.csdn.net 与 www 变体）
                             arr.put(org.json.JSONObject().put("name", name).put("value", v).put("domain", domain).put("path", "/"))
                         }
                     }
