@@ -415,14 +415,14 @@ function tplCompose() {
 /* ---------- 工具模式智能体（DeepSeek-V4-Flash + 自定义工具协议，不走 phoenix 通道） ---------- */
 const TOOL_MODEL_ID = "3"; // DeepSeek-V4-Flash（Dify）
 const TOOL_SPEC = [
-  "你是接入用户 Markdown 编辑器的编辑智能体，可以调用工具操作编辑器。",
-  "每次回复只能二选一：",
-  "A) 输出一行工具调用 JSON（无代码块无解释），每次仅一个：",
-  '{"tool":"read_editor"} —— 读取编辑器当前全文',
-  '{"tool":"write_editor","content":"<替换编辑器的完整新文章>"} —— 整篇替换',
-  '{"tool":"append_editor","content":"<追加内容>"} —— 追加到文末',
-  "B) 任务已完成时：直接输出最终答复正文（Markdown），不再调用工具。",
-].join("\n");
+  "你是接入用户 Markdown 编辑器的编辑智能体，通过工具调用完成用户任务。",
+  "每次回复只输出一行 JSON（无代码块无解释无多余文字），从以下工具中选一个：",
+  '"{"tool":"read_editor"}" —— 读取编辑器当前全文',
+  '"{"tool":"write_editor","content":"<替换编辑器的完整新文章>"}" —— 整篇替换（覆盖前请先 read_editor）',
+  '"{"tool":"append_editor","content":"<追加内容>"}" —— 追加到文末',
+  '"{"tool":"task_finish","summary":"<给用户看的最终答复，Markdown>"}" —— 任务完成时必须调用它结束；summary 给用户完整交代',
+  "规则：任务未完成不要调用 task_finish；不要重复调用完全相同的工具；每次只调用一个工具。",
+].join('\n');
 function parseToolCall(text) {
   const t = (text || "").trim();
   if (!t.startsWith("{")) return null;
@@ -438,20 +438,36 @@ async function toolAgentRun(instruction, onStep) {
   const article = edTextEl().value.trim();
   let query = [TOOL_SPEC, "", "【编辑器当前全文】", article || "（空）", "【结束】", "", "用户指令：" + instruction].join("\n");
   const toolLog = [];
-  for (let step = 1; step <= 5; step++) {
+  let lastHash = "", repeatCount = 0, lastAnswer = "";
+  const MAX_TURNS = 6;
+  for (let turn = 1; turn <= MAX_TURNS; turn++) {
     const out = await fastCall(query);
     const call = parseToolCall(out);
-    if (!call) return { text: out, toolLog };
-    let result = "未知工具";
-    if (call.tool === "write_editor") { const c = String(call.content || ""); edApply("replace", c); result = "已替换编辑器全文（" + c.length + " 字）"; }
-    else if (call.tool === "append_editor") { const c = String(call.content || ""); edApply("append", c); result = "已追加（" + c.length + " 字）"; }
-    else if (call.tool === "read_editor") result = edTextEl().value || "（空）";
+    if (!call) return { text: out, toolLog, turns: turn };  // 隐式停止：无工具调用即最终答复
+    if (call.tool === "task_finish") return { text: String(call.summary || "任务完成"), toolLog, turns: turn };  // 显式闭环
+    const hash = call.tool + "@" + JSON.stringify(call.content || call.summary || "");
+    if (hash === lastHash) {
+      repeatCount++;
+      if (repeatCount >= 2) return { text: lastAnswer || ("已执行 " + toolLog.length + " 次工具调用后停止（检测到重复调用）"), toolLog, turns: turn };
+      onStep(call.tool, "重复调用，要求收敛");
+    transcript += "\n\n【助手】\n" + out + "\n【工具结果】FAILURE: 你重复调用了相同工具。任务已完成请立即调用 task_finish；否则换一种操作。"
+      continue;
+    }
+    lastHash = hash; repeatCount = 0;
+    let state = "SUCCESS", result = "ok";
+    try {
+      if (call.tool === "write_editor") { const c = String(call.content || ""); if (!c.trim()) throw new Error("content 为空"); edApply("replace", c); result = "已替换编辑器全文（" + c.length + " 字）"; }
+      else if (call.tool === "append_editor") { const c = String(call.content || ""); if (!c.trim()) throw new Error("content 为空"); edApply("append", c); result = "已追加（" + c.length + " 字）"; }
+      else if (call.tool === "read_editor") result = edTextEl().value || "（空）";
+      else { state = "FAILURE"; result = "未知工具"; }
+    } catch (e) { state = "FAILURE"; result = e.message || "执行失败"; }
+    if (call.tool === "read_editor") lastAnswer = result;
     toolLog.push(call.tool);
-    onStep(call.tool, result);
-    query = out + "\n[TOOL_RESULT] " + result.slice(0, 500) + "\n继续。若用户任务已完成，输出最终答复正文。";
+    onStep(call.tool, state + " · " + result);
+    transcript += "\n\n【助手】\n" + out + "\n【工具结果】" + state + ": " + result + "\n继续。任务全部完成后调用 task_finish 给出最终答复。"
   }
-  return { text: "（达到工具调用轮次上限，请拆分任务）", toolLog };
-}
+  return { text: lastAnswer || "（达到最大轮次 " + MAX_TURNS + "，已停止）", toolLog, turns: MAX_TURNS };
+};
 
 /* ---------- 划选菜单（官方划选六件套） ---------- */
 const SEL_ACTIONS = [
